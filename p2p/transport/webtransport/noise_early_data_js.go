@@ -1,4 +1,4 @@
-//go:build !js
+//go:build js
 
 package libp2pwebtransport
 
@@ -17,10 +17,6 @@ type earlyDataHandler struct {
 }
 
 var _ noise.EarlyDataHandler = &earlyDataHandler{}
-
-func newEarlyDataSender(earlyData *pb.NoiseExtensions) noise.EarlyDataHandler {
-	return &earlyDataHandler{earlyData: earlyData}
-}
 
 func newEarlyDataReceiver(receive func(*pb.NoiseExtensions) error) noise.EarlyDataHandler {
 	return &earlyDataHandler{receive: receive}
