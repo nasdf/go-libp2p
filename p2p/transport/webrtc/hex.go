@@ -1,3 +1,5 @@
+//go:build !js
+
 package libp2pwebrtc
 
 // The code in this file is adapted from the Go standard library's hex package.

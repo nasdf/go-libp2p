@@ -1,3 +1,5 @@
+//go:build !js
+
 package libp2pwebrtc
 
 import (

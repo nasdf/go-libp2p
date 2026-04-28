@@ -13,14 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	tls "github.com/libp2p/go-libp2p/p2p/security/tls"
-	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
-	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
-	libp2pwebrtc "github.com/libp2p/go-libp2p/p2p/transport/webrtc"
-	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
-	webtransport "github.com/libp2p/go-libp2p/p2p/transport/webtransport"
 	"github.com/prometheus/client_golang/prometheus"
-
-	"github.com/multiformats/go-multiaddr"
 )
 
 // DefaultSecurity is the default security option.
@@ -38,27 +31,6 @@ var DefaultSecurity = ChainOptions(
 // libp2p instead of replacing them.
 var DefaultMuxers = Muxer(yamux.ID, yamux.DefaultTransport)
 
-// DefaultTransports are the default libp2p transports.
-//
-// Use this option when you want to *extend* the set of transports used by
-// libp2p instead of replacing them.
-var DefaultTransports = ChainOptions(
-	Transport(tcp.NewTCPTransport),
-	Transport(quic.NewTransport),
-	Transport(ws.New),
-	Transport(webtransport.New),
-	Transport(libp2pwebrtc.New),
-)
-
-// DefaultPrivateTransports are the default libp2p transports when a PSK is supplied.
-//
-// Use this option when you want to *extend* the set of transports used by
-// libp2p instead of replacing them.
-var DefaultPrivateTransports = ChainOptions(
-	Transport(tcp.NewTCPTransport),
-	Transport(ws.New),
-)
-
 // DefaultPeerstore configures libp2p to use the default peerstore.
 var DefaultPeerstore Option = func(cfg *Config) error {
 	ps, err := pstoremem.NewPeerstore()
@@ -75,29 +47,6 @@ var RandomIdentity = func(cfg *Config) error {
 		return err
 	}
 	return cfg.Apply(Identity(priv))
-}
-
-// DefaultListenAddrs configures libp2p to use default listen address.
-var DefaultListenAddrs = func(cfg *Config) error {
-	addrs := []string{
-		"/ip4/0.0.0.0/tcp/0",
-		"/ip4/0.0.0.0/udp/0/quic-v1",
-		"/ip4/0.0.0.0/udp/0/quic-v1/webtransport",
-		"/ip4/0.0.0.0/udp/0/webrtc-direct",
-		"/ip6/::/tcp/0",
-		"/ip6/::/udp/0/quic-v1",
-		"/ip6/::/udp/0/quic-v1/webtransport",
-		"/ip6/::/udp/0/webrtc-direct",
-	}
-	listenAddrs := make([]multiaddr.Multiaddr, 0, len(addrs))
-	for _, s := range addrs {
-		addr, err := multiaddr.NewMultiaddr(s)
-		if err != nil {
-			return err
-		}
-		listenAddrs = append(listenAddrs, addr)
-	}
-	return cfg.Apply(ListenAddrs(listenAddrs...))
 }
 
 // DefaultEnableRelay enables relay dialing and listening by default.

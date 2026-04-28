@@ -1,3 +1,5 @@
+//go:build !js
+
 // Package libp2pwebrtc implements the WebRTC transport for go-libp2p,
 // as described in https://github.com/libp2p/specs/tree/master/webrtc.
 package libp2pwebrtc
