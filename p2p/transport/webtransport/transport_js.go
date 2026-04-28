@@ -76,8 +76,11 @@ func (t *transport) Proxy() bool {
 	return false
 }
 
-func (t *transport) Listen(ma.Multiaddr) (tpt.Listener, error) {
-	return nil, errors.New("cannot listen when using WASM WebTransport")
+// Listen returns a no-op listener. The browser cannot accept inbound
+// WebTransport sessions, but returning a stub listener keeps default
+// configurations that include a webtransport listen address from erroring.
+func (t *transport) Listen(addr ma.Multiaddr) (tpt.Listener, error) {
+	return newNoopListener(addr), nil
 }
 
 func (t *transport) CanDial(addr ma.Multiaddr) bool {
