@@ -5,6 +5,7 @@ package libp2pwebtransport
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"sync/atomic"
 	"time"
@@ -14,12 +15,22 @@ import (
 	"github.com/sourcenetwork/goji/web_transport"
 )
 
+// errInputStream is what Chromium throws on a WebTransport bidirectional
+// stream's reader when the peer's STOP_SENDING (sent by the peer's
+// Close -> CancelRead path) is processed, even after the payload has
+// already been delivered. Per spec, STOP_SENDING applies only to the
+// writer half and should not affect the reader, but Chrome surfaces it
+// here. Once we've already delivered bytes to the caller we treat this
+// as a clean EOF rather than propagating a spurious failure.
+const errInputStream = "TypeError: Error in input stream"
+
 var _ network.MuxedStream = (*stream)(nil)
 
 type stream struct {
 	sess          *session
 	reader        *streams.Reader
 	writer        *streams.Writer
+	readAny       bool // true once at least one byte has been delivered to the caller
 	done          bool
 	readDeadline  atomic.Pointer[time.Time]
 	writeDeadline atomic.Pointer[time.Time]
@@ -34,6 +45,24 @@ func newStream(s web_transport.WebTransportBidirectionalStreamValue, sess *sessi
 }
 
 func (s *stream) Read(b []byte) (int, error) {
+	if s.done {
+		return 0, io.EOF
+	}
+	n, err := s.read(b)
+	if err != nil {
+		if s.readAny && err.Error() == errInputStream {
+			s.done = true
+			return 0, io.EOF
+		}
+		return n, err
+	}
+	if n > 0 {
+		s.readAny = true
+	}
+	return n, nil
+}
+
+func (s *stream) read(b []byte) (int, error) {
 	deadline := s.readDeadline.Load()
 	if deadline == nil {
 		return s.reader.Read(b)
@@ -86,7 +115,7 @@ func (s *stream) SetWriteDeadline(t time.Time) error {
 }
 
 func (s *stream) Close() error {
-	return errors.Join(s.CloseRead(), s.CloseWrite())
+	return errors.Join(s.CloseWrite(), s.CloseRead())
 }
 
 func (s *stream) CloseWrite() error {
