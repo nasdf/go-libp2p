@@ -86,6 +86,10 @@ func (c *conn) Close() error {
 	return nil
 }
 
+func (c *conn) As(_ any) bool {
+	return false
+}
+
 func (c *conn) teardown() {
 	for _, s := range c.allStreams() {
 		s.Reset()
@@ -137,7 +141,7 @@ func (c *conn) openStream() *stream {
 }
 
 func (c *conn) NewStream(context.Context) (network.Stream, error) {
-	log.Debugf("Conn.NewStreamWithProtocol: %s --> %s", c.local, c.remote)
+	log.Debug("Conn.NewStreamWithProtocol", "source_peer", c.local, "destination_peer", c.remote)
 
 	s := c.openStream()
 	return s, nil

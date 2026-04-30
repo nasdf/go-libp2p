@@ -23,7 +23,7 @@ func TestInvalidOption(t *testing.T) {
 func TestFuzzInMemoryPeerstore(t *testing.T) {
 	// Just create and close a bunch of peerstores. If this leaks, we'll
 	// catch it in the leak check below.
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		ps, err := NewPeerstore()
 		require.NoError(t, err)
 		ps.Close()
@@ -82,7 +82,7 @@ func BenchmarkInMemoryKeyBook(b *testing.B) {
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(
 		m,
-		goleak.IgnoreTopFunction("github.com/ipfs/go-log/v2/writer.(*MirrorWriter).logRoutine"),
+		goleak.IgnoreTopFunction("github.com/libp2p/go-libp2p/gologshim/writer.(*MirrorWriter).logRoutine"),
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 	)
 }
@@ -99,10 +99,10 @@ func BenchmarkGC(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		for i := 0; i < peerCount; i++ {
+		for i := range peerCount {
 			id := peer.ID(strconv.Itoa(i))
 			addrs := make([]multiaddr.Multiaddr, addrsPerPeer)
-			for j := 0; j < addrsPerPeer; j++ {
+			for j := range addrsPerPeer {
 				addrs[j] = multiaddr.StringCast("/ip4/1.2.3.4/tcp/" + strconv.Itoa(j))
 			}
 			ps.AddAddrs(id, addrs, 24*time.Hour)

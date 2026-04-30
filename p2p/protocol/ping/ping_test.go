@@ -15,8 +15,7 @@ import (
 )
 
 func TestPing(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	h1, err := bhost.NewHost(swarmt.GenSwarm(t), nil)
 	require.NoError(t, err)
 	defer h1.Close()
@@ -44,7 +43,7 @@ func testPing(t *testing.T, ps *ping.PingService, p peer.ID) {
 	defer cancel()
 	ts := ps.Ping(pctx, p)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		select {
 		case res := <-ts:
 			require.NoError(t, res.Error)

@@ -109,7 +109,7 @@ func TestClientRequest(t *testing.T) {
 
 	addrs := an.host.Addrs()
 	addrbs := make([][]byte, len(addrs))
-	for i := 0; i < len(addrs); i++ {
+	for i := range addrs {
 		addrbs[i] = addrs[i].Bytes()
 	}
 
@@ -587,17 +587,7 @@ func TestEventSubscription(t *testing.T) {
 }
 
 func TestAreAddrsConsistency(t *testing.T) {
-	c := &client{
-		normalizeMultiaddr: func(a ma.Multiaddr) ma.Multiaddr {
-			for {
-				rest, l := ma.SplitLast(a)
-				if _, err := l.ValueForProtocol(ma.P_CERTHASH); err != nil {
-					return a
-				}
-				a = rest
-			}
-		},
-	}
+	c := &client{}
 	tests := []struct {
 		name      string
 		localAddr ma.Multiaddr
@@ -645,6 +635,24 @@ func TestAreAddrsConsistency(t *testing.T) {
 			localAddr: ma.StringCast("/dns6/lib.p2p/udp/12345/quic-v1"),
 			dialAddr:  ma.StringCast("/ip4/1.2.3.4/udp/123/quic-v1/"),
 			success:   false,
+		},
+		{
+			name:      "wss",
+			dialAddr:  ma.StringCast("/dns/lib.p2p/tcp/1/wss"),
+			localAddr: ma.StringCast("/ip4/1.2.3.4/tcp/1/tls/ws"),
+			success:   true,
+		},
+		{
+			name:      "tls-sni",
+			localAddr: ma.StringCast("/ip4/1.2.3.4/tcp/1/wss"),
+			dialAddr:  ma.StringCast("/ip4/1.2.3.4/tcp/1/tls/sni/abc.xyz/ws"),
+			success:   true,
+		},
+		{
+			name:      "only p2p",
+			localAddr: ma.StringCast("/p2p/QmYo41GybvrXk8y8Xnm1P7pfA4YEXCpfnLyzgRPnNbG35e"),
+			dialAddr:  ma.StringCast("/p2p/QmYo41GybvrXk8y8Xnm1P7pfA4YEXCpfnLyzgRPnNbG35e"),
+			success:   true,
 		},
 	}
 	for _, tc := range tests {
@@ -731,10 +739,7 @@ func FuzzClient(f *testing.F) {
 		}
 		ips = ips[1:]
 		var x, y int64
-		split := 128 / 8
-		if len(ips) < split {
-			split = len(ips)
-		}
+		split := min(len(ips), 128/8)
 		var b [8]byte
 		copy(b[:], ips[:split])
 		x = int64(binary.LittleEndian.Uint64(b[:]))
@@ -828,4 +833,11 @@ func FuzzClient(f *testing.F) {
 		}
 		c.GetReachability(context.Background(), reqs)
 	})
+}
+
+func TestNormalizeMultiaddr(t *testing.T) {
+	require.Equal(t,
+		"/ip4/1.2.3.4/udp/9999/quic-v1/webtransport",
+		normalizeMultiaddr(ma.StringCast("/ip4/1.2.3.4/udp/9999/quic-v1/webtransport/certhash/uEgNmb28")).String(),
+	)
 }

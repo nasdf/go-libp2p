@@ -1,7 +1,6 @@
 package backpressure_tests
 
 import (
-	"context"
 	"os"
 	"testing"
 	"time"
@@ -11,7 +10,7 @@ import (
 	bhost "github.com/libp2p/go-libp2p/p2p/host/basic"
 	swarmt "github.com/libp2p/go-libp2p/p2p/net/swarm/testing"
 
-	logging "github.com/ipfs/go-log/v2"
+	logging "github.com/libp2p/go-libp2p/gologshim"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,8 +19,7 @@ var log = logging.Logger("backpressure")
 // TestStBackpressureStreamWrite tests whether streams see proper
 // backpressure when writing data over the network streams.
 func TestStBackpressureStreamWrite(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1, err := bhost.NewHost(swarmt.GenSwarm(t), nil)
 	require.NoError(t, err)
@@ -37,7 +35,7 @@ func TestStBackpressureStreamWrite(t *testing.T) {
 	})
 
 	h2pi := h2.Peerstore().PeerInfo(h2.ID())
-	log.Debugf("dialing %s", h2pi.Addrs)
+	log.Debug("dialing", "addrs", h2pi.Addrs)
 	if err := h1.Connect(ctx, h2pi); err != nil {
 		t.Fatal("Failed to connect:", err)
 	}
@@ -50,7 +48,7 @@ func TestStBackpressureStreamWrite(t *testing.T) {
 	// If nobody is reading, we should eventually time out.
 	require.NoError(t, s.SetWriteDeadline(time.Now().Add(100*time.Millisecond)))
 	data := make([]byte, 16*1024)
-	for i := 0; i < 5*1024; i++ { // write at most 100MiB
+	for range 5 * 1024 { // write at most 100MiB
 		if _, err := s.Write(data); err != nil {
 			require.True(t, os.IsTimeout(err), err)
 			return

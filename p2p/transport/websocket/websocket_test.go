@@ -26,11 +26,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/sec"
-	"github.com/libp2p/go-libp2p/core/sec/insecure"
 	"github.com/libp2p/go-libp2p/core/test"
 	"github.com/libp2p/go-libp2p/core/transport"
 	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
 	tptu "github.com/libp2p/go-libp2p/p2p/net/upgrader"
+	"github.com/libp2p/go-libp2p/p2p/security/insecure"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	ttransport "github.com/libp2p/go-libp2p/p2p/transport/testsuite"
 
@@ -472,7 +472,7 @@ func TestConcurrentClose(t *testing.T) {
 	msg := []byte("HELLO WORLD")
 
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			c, err := tpt.maDial(context.Background(), l.Multiaddr(), &network.NullScope{})
 			if err != nil {
 				t.Error(err)
@@ -488,7 +488,7 @@ func TestConcurrentClose(t *testing.T) {
 		}
 	}()
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		c, _, err := l.Accept()
 		if err != nil {
 			t.Fatal(err)
@@ -519,7 +519,7 @@ func TestWriteZero(t *testing.T) {
 		}
 		defer c.Close()
 
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			n, err := c.Write(msg)
 			if n != 0 {
 				t.Errorf("expected to write 0 bytes, wrote %d", n)

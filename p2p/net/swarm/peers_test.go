@@ -37,13 +37,13 @@ func TestPeers(t *testing.T) {
 	require.Eventually(t, func() bool { return len(s2.Peers()) > 0 }, 3*time.Second, 50*time.Millisecond)
 	connect(s2, s1.LocalPeer(), s1.ListenAddresses()[0])
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		connect(s1, s2.LocalPeer(), s2.ListenAddresses()[0])
 		connect(s2, s1.LocalPeer(), s1.ListenAddresses()[0])
 	}
 
 	for _, s := range swarms {
-		log.Infof("%s swarm routing table: %s", s.LocalPeer(), s.Peers())
+		log.Info("swarm routing table", "peer", s.LocalPeer(), "peers", s.Peers())
 	}
 
 	test := func(s *Swarm) {

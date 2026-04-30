@@ -19,7 +19,7 @@ import (
 	p2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
 
-	logging "github.com/ipfs/go-log/v2"
+	logging "github.com/libp2p/go-libp2p/gologshim"
 	ma "github.com/multiformats/go-multiaddr"
 	mafmt "github.com/multiformats/go-multiaddr-fmt"
 	manet "github.com/multiformats/go-multiaddr/net"
@@ -115,7 +115,7 @@ func (t *transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (_c
 
 	scope, err := t.rcmgr.OpenConnection(network.DirOutbound, false, raddr)
 	if err != nil {
-		log.Debugw("resource manager blocked outgoing connection", "peer", p, "addr", raddr, "error", err)
+		log.Debug("resource manager blocked outgoing connection", "peer", p, "addr", raddr, "err", err)
 		return nil, err
 	}
 
@@ -129,7 +129,7 @@ func (t *transport) Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (_c
 
 func (t *transport) dialWithScope(ctx context.Context, raddr ma.Multiaddr, p peer.ID, scope network.ConnManagementScope) (tpt.CapableConn, error) {
 	if err := scope.SetPeer(p); err != nil {
-		log.Debugw("resource manager blocked outgoing connection for peer", "peer", p, "addr", raddr, "error", err)
+		log.Debug("resource manager blocked outgoing connection for peer", "peer", p, "addr", raddr, "err", err)
 		return nil, err
 	}
 
@@ -237,10 +237,9 @@ loop:
 			break
 		}
 
-		maxSleep := 10 * (i + 1) * (i + 1) // in ms
-		if maxSleep > 200 {
-			maxSleep = 200
-		}
+		maxSleep := min(
+			// in ms
+			10*(i+1)*(i+1), 200)
 		d := 10*time.Millisecond + time.Duration(rand.Intn(maxSleep))*time.Millisecond
 		if timer == nil {
 			timer = time.NewTimer(d)

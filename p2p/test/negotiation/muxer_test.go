@@ -10,8 +10,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/libp2p/go-libp2p/core/sec/insecure"
 	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
+	"github.com/libp2p/go-libp2p/p2p/security/insecure"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	tls "github.com/libp2p/go-libp2p/p2p/security/tls"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
@@ -84,10 +84,8 @@ func TestMuxerNegotiation(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		tc := tc
 
 		for _, sec := range securities {
-			sec := sec
 
 			t.Run(fmt.Sprintf("%s: %s", sec.Name, tc.Name), func(t *testing.T) {
 				server, err := libp2p.New(

@@ -108,125 +108,113 @@ func emitAddrChangeEvt(t *testing.T, h host.Host) {
 // this is because it used to be concurrent. Now, Dial wait till the
 // id service is done.
 func TestIDService(t *testing.T) {
-	for _, withObsAddrManager := range []bool{false, true} {
-		t.Run(fmt.Sprintf("withObsAddrManager=%t", withObsAddrManager), func(t *testing.T) {
-			if race.WithRace() {
-				t.Skip("This test modifies peerstore.RecentlyConnectedAddrTTL, which is racy.")
-			}
-			// This test is highly timing dependent, waiting on timeouts/expiration.
-			oldTTL := peerstore.RecentlyConnectedAddrTTL
-			oldTempTTL := peerstore.TempAddrTTL
-			peerstore.RecentlyConnectedAddrTTL = 500 * time.Millisecond
-			peerstore.TempAddrTTL = 50 * time.Millisecond
-			t.Cleanup(func() {
-				peerstore.RecentlyConnectedAddrTTL = oldTTL
-				peerstore.TempAddrTTL = oldTempTTL
-			})
+	if race.WithRace() {
+		t.Skip("This test modifies peerstore.RecentlyConnectedAddrTTL, which is racy.")
+	}
+	// This test is highly timing dependent, waiting on timeouts/expiration.
+	oldTTL := peerstore.RecentlyConnectedAddrTTL
+	oldTempTTL := peerstore.TempAddrTTL
+	peerstore.RecentlyConnectedAddrTTL = 500 * time.Millisecond
+	peerstore.TempAddrTTL = 50 * time.Millisecond
+	t.Cleanup(func() {
+		peerstore.RecentlyConnectedAddrTTL = oldTTL
+		peerstore.TempAddrTTL = oldTempTTL
+	})
 
-			clk := mockClock.NewMock()
-			swarm1 := swarmt.GenSwarm(t, swarmt.WithClock(clk))
-			swarm2 := swarmt.GenSwarm(t, swarmt.WithClock(clk))
-			h1 := blhost.NewBlankHost(swarm1)
-			h2 := blhost.NewBlankHost(swarm2)
+	clk := mockClock.NewMock()
+	swarm1 := swarmt.GenSwarm(t, swarmt.WithClock(clk))
+	swarm2 := swarmt.GenSwarm(t, swarmt.WithClock(clk))
+	h1 := blhost.NewBlankHost(swarm1)
+	h2 := blhost.NewBlankHost(swarm2)
 
-			h1p := h1.ID()
-			h2p := h2.ID()
+	h1p := h1.ID()
+	h2p := h2.ID()
 
-			opts := []identify.Option{}
-			if !withObsAddrManager {
-				opts = append(opts, identify.DisableObservedAddrManager())
-			}
-			ids1, err := identify.NewIDService(h1, opts...)
-			require.NoError(t, err)
-			defer ids1.Close()
-			ids1.Start()
+	ids1, err := identify.NewIDService(h1)
+	require.NoError(t, err)
+	defer ids1.Close()
+	ids1.Start()
 
-			opts = []identify.Option{}
-			if !withObsAddrManager {
-				opts = append(opts, identify.DisableObservedAddrManager())
-			}
-			ids2, err := identify.NewIDService(h2, opts...)
-			require.NoError(t, err)
-			defer ids2.Close()
-			ids2.Start()
+	ids2, err := identify.NewIDService(h2)
+	require.NoError(t, err)
+	defer ids2.Close()
+	ids2.Start()
 
-			sub, err := ids1.Host.EventBus().Subscribe(new(event.EvtPeerIdentificationCompleted))
-			if err != nil {
-				t.Fatal(err)
-			}
+	sub, err := ids1.Host.EventBus().Subscribe(new(event.EvtPeerIdentificationCompleted))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			testKnowsAddrs(t, h1, h2p, []ma.Multiaddr{}) // nothing
-			testKnowsAddrs(t, h2, h1p, []ma.Multiaddr{}) // nothing
+	testKnowsAddrs(t, h1, h2p, []ma.Multiaddr{}) // nothing
+	testKnowsAddrs(t, h2, h1p, []ma.Multiaddr{}) // nothing
 
-			// the forgetMe addr represents an address for h1 that h2 has learned out of band
-			// (not via identify protocol). During the identify exchange, it will be
-			// forgotten and replaced by the addrs h1 sends.
-			forgetMe, _ := ma.NewMultiaddr("/ip4/1.2.3.4/tcp/1234")
+	// the forgetMe addr represents an address for h1 that h2 has learned out of band
+	// (not via identify protocol). During the identify exchange, it will be
+	// forgotten and replaced by the addrs h1 sends.
+	forgetMe, _ := ma.NewMultiaddr("/ip4/1.2.3.4/tcp/1234")
 
-			h2.Peerstore().AddAddr(h1p, forgetMe, peerstore.RecentlyConnectedAddrTTL)
-			h2pi := h2.Peerstore().PeerInfo(h2p)
-			require.NoError(t, h1.Connect(context.Background(), h2pi))
+	h2.Peerstore().AddAddr(h1p, forgetMe, peerstore.RecentlyConnectedAddrTTL)
+	h2pi := h2.Peerstore().PeerInfo(h2p)
+	require.NoError(t, h1.Connect(context.Background(), h2pi))
 
-			h1t2c := h1.Network().ConnsToPeer(h2p)
-			require.NotEmpty(t, h1t2c, "should have a conn here")
+	h1t2c := h1.Network().ConnsToPeer(h2p)
+	require.NotEmpty(t, h1t2c, "should have a conn here")
 
-			ids1.IdentifyConn(h1t2c[0])
+	ids1.IdentifyConn(h1t2c[0])
 
-			// the idService should be opened automatically, by the network.
-			// what we should see now is that both peers know about each others listen addresses.
-			t.Log("test peer1 has peer2 addrs correctly")
-			testKnowsAddrs(t, h1, h2p, h2.Addrs()) // has them
-			testHasAgentVersion(t, h1, h2p)
-			testHasPublicKey(t, h1, h2p, h2.Peerstore().PubKey(h2p)) // h1 should have h2's public key
+	// the idService should be opened automatically, by the network.
+	// what we should see now is that both peers know about each others listen addresses.
+	t.Log("test peer1 has peer2 addrs correctly")
+	testKnowsAddrs(t, h1, h2p, h2.Addrs()) // has them
+	testHasAgentVersion(t, h1, h2p)
+	testHasPublicKey(t, h1, h2p, h2.Peerstore().PubKey(h2p)) // h1 should have h2's public key
 
-			// now, this wait we do have to do. it's the wait for the Listening side
-			// to be done identifying the connection.
-			c := h2.Network().ConnsToPeer(h1.ID())
-			require.NotEmpty(t, c, "should have connection by now at least.")
-			ids2.IdentifyConn(c[0])
+	// now, this wait we do have to do. it's the wait for the Listening side
+	// to be done identifying the connection.
+	c := h2.Network().ConnsToPeer(h1.ID())
+	require.NotEmpty(t, c, "should have connection by now at least.")
+	ids2.IdentifyConn(c[0])
 
-			// and the protocol versions.
-			t.Log("test peer2 has peer1 addrs correctly")
-			testKnowsAddrs(t, h2, h1p, h1.Addrs()) // has them
-			testHasAgentVersion(t, h2, h1p)
-			testHasPublicKey(t, h2, h1p, h1.Peerstore().PubKey(h1p)) // h1 should have h2's public key
+	// and the protocol versions.
+	t.Log("test peer2 has peer1 addrs correctly")
+	testKnowsAddrs(t, h2, h1p, h1.Addrs()) // has them
+	testHasAgentVersion(t, h2, h1p)
+	testHasPublicKey(t, h2, h1p, h1.Peerstore().PubKey(h1p)) // h1 should have h2's public key
 
-			// Need both sides to actually notice that the connection has been closed.
-			sentDisconnect1 := waitForDisconnectNotification(swarm1)
-			sentDisconnect2 := waitForDisconnectNotification(swarm2)
-			h1.Network().ClosePeer(h2p)
-			h2.Network().ClosePeer(h1p)
-			if len(h2.Network().ConnsToPeer(h1.ID())) != 0 || len(h1.Network().ConnsToPeer(h2.ID())) != 0 {
-				t.Fatal("should have no connections")
-			}
+	// Need both sides to actually notice that the connection has been closed.
+	sentDisconnect1 := waitForDisconnectNotification(swarm1)
+	sentDisconnect2 := waitForDisconnectNotification(swarm2)
+	h1.Network().ClosePeer(h2p)
+	h2.Network().ClosePeer(h1p)
+	if len(h2.Network().ConnsToPeer(h1.ID())) != 0 || len(h1.Network().ConnsToPeer(h2.ID())) != 0 {
+		t.Fatal("should have no connections")
+	}
 
-			t.Log("testing addrs just after disconnect")
-			// addresses don't immediately expire on disconnect, so we should still have them
-			testKnowsAddrs(t, h2, h1p, h1.Addrs())
-			testKnowsAddrs(t, h1, h2p, h2.Addrs())
+	t.Log("testing addrs just after disconnect")
+	// addresses don't immediately expire on disconnect, so we should still have them
+	testKnowsAddrs(t, h2, h1p, h1.Addrs())
+	testKnowsAddrs(t, h1, h2p, h2.Addrs())
 
-			<-sentDisconnect1
-			<-sentDisconnect2
+	<-sentDisconnect1
+	<-sentDisconnect2
 
-			// the addrs had their TTLs reduced on disconnect, and
-			// will be forgotten soon after
-			t.Log("testing addrs after TTL expiration")
-			clk.Add(time.Second)
-			testKnowsAddrs(t, h1, h2p, []ma.Multiaddr{})
-			testKnowsAddrs(t, h2, h1p, []ma.Multiaddr{})
+	// the addrs had their TTLs reduced on disconnect, and
+	// will be forgotten soon after
+	t.Log("testing addrs after TTL expiration")
+	clk.Add(time.Second)
+	testKnowsAddrs(t, h1, h2p, []ma.Multiaddr{})
+	testKnowsAddrs(t, h2, h1p, []ma.Multiaddr{})
 
-			// test that we received the "identify completed" event.
-			select {
-			case evtAny := <-sub.Out():
-				assertCorrectEvtPeerIdentificationCompleted(t, evtAny, h2)
-			case <-time.After(3 * time.Second):
-				t.Fatalf("expected EvtPeerIdentificationCompleted event within 10 seconds; none received")
-			}
-		})
+	// test that we received the "identify completed" event.
+	select {
+	case evtAny := <-sub.Out():
+		assertCorrectEvtPeerIdentificationCompleted(t, evtAny, h2)
+	case <-time.After(3 * time.Second):
+		t.Fatalf("expected EvtPeerIdentificationCompleted event within 10 seconds; none received")
 	}
 }
 
-func assertCorrectEvtPeerIdentificationCompleted(t *testing.T, evtAny interface{}, other host.Host) {
+func assertCorrectEvtPeerIdentificationCompleted(t *testing.T, evtAny any, other host.Host) {
 	t.Helper()
 	evt := evtAny.(event.EvtPeerIdentificationCompleted)
 	require.NotNil(t, evt.Conn)
@@ -375,8 +363,7 @@ func TestLocalhostAddrFiltering(t *testing.T) {
 // TestIdentifyPushWhileIdentifyingConn tests that the host waits to push updates if an identify is ongoing.
 func TestIdentifyPushWhileIdentifyingConn(t *testing.T) {
 	t.Skip()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1 := blhost.NewBlankHost(swarmt.GenSwarm(t))
 	h2 := blhost.NewBlankHost(swarmt.GenSwarm(t))
@@ -448,8 +435,7 @@ func TestIdentifyPushWhileIdentifyingConn(t *testing.T) {
 }
 
 func TestIdentifyPushOnAddrChange(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1 := blhost.NewBlankHost(swarmt.GenSwarm(t))
 	h2 := blhost.NewBlankHost(swarmt.GenSwarm(t))
@@ -522,8 +508,7 @@ func TestIdentifyPushOnAddrChange(t *testing.T) {
 }
 
 func TestUserAgent(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1, err := libp2p.New(libp2p.UserAgent("foo"), libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"))
 	if err != nil {
@@ -554,8 +539,7 @@ func TestNotListening(t *testing.T) {
 	// Make sure we don't panic if we're not listening on any addresses.
 	//
 	// https://github.com/libp2p/go-libp2p/issues/939
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1, err := libp2p.New(libp2p.NoListenAddrs)
 	if err != nil {
@@ -576,8 +560,7 @@ func TestNotListening(t *testing.T) {
 }
 
 func TestSendPush(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1 := blhost.NewBlankHost(swarmt.GenSwarm(t))
 	h2 := blhost.NewBlankHost(swarmt.GenSwarm(t))
@@ -637,7 +620,7 @@ func TestLargeIdentifyMessage(t *testing.T) {
 
 	// add protocol strings to make the message larger
 	// about 2K of protocol strings
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		r := protocol.ID(fmt.Sprintf("rand%d", i))
 		h1.SetStreamHandler(r, func(network.Stream) {})
 		h2.SetStreamHandler(r, func(network.Stream) {})
@@ -734,22 +717,21 @@ func TestLargeIdentifyMessage(t *testing.T) {
 func randString(n int) string {
 	chars := "abcdefghijklmnopqrstuvwxyz"
 	buf := make([]byte, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		buf[i] = chars[rand.Intn(len(chars))]
 	}
 	return string(buf)
 }
 
 func TestLargePushMessage(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1 := blhost.NewBlankHost(swarmt.GenSwarm(t))
 	h2 := blhost.NewBlankHost(swarmt.GenSwarm(t))
 
 	// add protocol strings to make the message larger
 	// about 3K of protocol strings
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		r := protocol.ID(fmt.Sprintf("%s-%d", randString(30), i))
 		h1.SetStreamHandler(r, func(network.Stream) {})
 		h2.SetStreamHandler(r, func(network.Stream) {})
@@ -817,8 +799,7 @@ func TestLargePushMessage(t *testing.T) {
 }
 
 func TestIdentifyResponseReadTimeout(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1 := blhost.NewBlankHost(swarmt.GenSwarm(t))
 	h2 := blhost.NewBlankHost(swarmt.GenSwarm(t))
@@ -857,8 +838,7 @@ func TestIdentifyResponseReadTimeout(t *testing.T) {
 }
 
 func TestIncomingIDStreamsTimeout(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	protocols := []protocol.ID{identify.IDPush}
 

@@ -13,7 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/record"
 
-	logging "github.com/ipfs/go-log/v2"
+	logging "github.com/libp2p/go-libp2p/gologshim"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -44,7 +44,9 @@ func ttlIsConnected(ttl time.Duration) bool {
 
 type peerRecordState struct {
 	Envelope *record.Envelope
-	Seq      uint64
+	// Seq is the sequence number from the stored signed peer record. Newer
+	// records (higher Seq) supersede older ones for the same peer.
+	Seq uint64
 }
 
 // Essentially Go stdlib's Priority Queue example
@@ -289,8 +291,23 @@ func (mab *memoryAddrBook) AddAddrs(p peer.ID, addrs []ma.Multiaddr, ttl time.Du
 	mab.addAddrs(p, addrs, ttl)
 }
 
-// ConsumePeerRecord adds addresses from a signed peer.PeerRecord, which will expire after the given TTL.
-// See https://godoc.org/github.com/libp2p/go-libp2p/core/peerstore#CertifiedAddrBook for more details.
+// ConsumePeerRecord adds addresses from a signed peer.PeerRecord, which will
+// expire after the given TTL. See
+// https://godoc.org/github.com/libp2p/go-libp2p/core/peerstore#CertifiedAddrBook
+// for more details.
+//
+// The signed peer record's Seq is treated as monotonic per peer: a record with
+// a Seq lower than the last accepted one is rejected. Equal Seq is accepted as
+// a TTL refresh.
+//
+// When a newer signed record is accepted, addrs that were present in the
+// previously stored signed record but absent in the new one are evicted, so
+// the peerstore reflects the peer's current self-advertised set instead of
+// the union of every record we have ever seen. Unsigned addrs (added via
+// AddAddr / SetAddr from sources like DHT gossip, or from an identify
+// exchange where the peer did not send a signed record) are not touched, and
+// addrs held by a live connection (TTL >= ConnectedAddrTTL) are also kept so
+// active sessions are not dropped.
 func (mab *memoryAddrBook) ConsumePeerRecord(recordEnvelope *record.Envelope, ttl time.Duration) (bool, error) {
 	r, err := recordEnvelope.Record()
 	if err != nil {
@@ -316,12 +333,57 @@ func (mab *memoryAddrBook) ConsumePeerRecord(recordEnvelope *record.Envelope, tt
 	if !found && len(mab.signedPeerRecords) >= mab.maxSignedPeerRecords {
 		return false, errors.New("too many signed peer records")
 	}
+
+	// Drop addrs from the previous signed record that are absent in the
+	// new one; addrs held by a live connection are preserved so we don't
+	// drop an active session if the peer rotates its advertised set. The
+	// prior addr set is recovered by decoding the stored envelope; that
+	// call caches on first access (core/record/envelope.go), so repeated
+	// lookups are cheap.
+	if found {
+		if prevRec := prevSignedAddrs(lastState); len(prevRec) > 0 {
+			newAddrSet := make(map[string]struct{}, len(rec.Addrs))
+			for _, a := range rec.Addrs {
+				newAddrSet[string(a.Bytes())] = struct{}{}
+			}
+			for _, a := range prevRec {
+				key := string(a.Bytes())
+				if _, still := newAddrSet[key]; still {
+					continue
+				}
+				ea, ok := mab.addrs.Addrs[rec.PeerID][key]
+				if !ok || ea.IsConnected() {
+					continue
+				}
+				mab.addrs.Delete(ea)
+			}
+		}
+	}
+
 	mab.signedPeerRecords[rec.PeerID] = &peerRecordState{
 		Envelope: recordEnvelope,
 		Seq:      rec.Seq,
 	}
 	mab.addAddrsUnlocked(rec.PeerID, rec.Addrs, ttl)
 	return true, nil
+}
+
+// prevSignedAddrs returns the addrs from the stored signed peer record, or
+// nil if the envelope is absent or can't be decoded. Envelope.Record() caches
+// its result, so repeated calls are cheap.
+func prevSignedAddrs(s *peerRecordState) []ma.Multiaddr {
+	if s == nil || s.Envelope == nil {
+		return nil
+	}
+	r, err := s.Envelope.Record()
+	if err != nil {
+		return nil
+	}
+	pr, ok := r.(*peer.PeerRecord)
+	if !ok {
+		return nil
+	}
+	return pr.Addrs
 }
 
 func (mab *memoryAddrBook) maybeDeleteSignedPeerRecordUnlocked(p peer.ID) {
@@ -355,11 +417,11 @@ func (mab *memoryAddrBook) addAddrsUnlocked(p peer.ID, addrs []ma.Multiaddr, ttl
 		// Remove suffix of /p2p/peer-id from address
 		addr, addrPid := peer.SplitAddr(addr)
 		if addr == nil {
-			log.Warnw("Was passed nil multiaddr", "peer", p)
+			log.Warn("Was passed nil multiaddr", "peer", p)
 			continue
 		}
 		if addrPid != "" && addrPid != p {
-			log.Warnf("Was passed p2p address with a different peerId. found: %s, expected: %s", addrPid, p)
+			log.Warn("Was passed p2p address with a different peerId", "found", addrPid, "expected", p)
 			continue
 		}
 		a, found := mab.addrs.FindAddr(p, addr)
@@ -403,11 +465,11 @@ func (mab *memoryAddrBook) SetAddrs(p peer.ID, addrs []ma.Multiaddr, ttl time.Du
 	for _, addr := range addrs {
 		addr, addrPid := peer.SplitAddr(addr)
 		if addr == nil {
-			log.Warnw("was passed nil multiaddr", "peer", p)
+			log.Warn("was passed nil multiaddr", "peer", p)
 			continue
 		}
 		if addrPid != "" && addrPid != p {
-			log.Warnf("was passed p2p address with a different peerId, found: %s wanted: %s", addrPid, p)
+			log.Warn("was passed p2p address with a different peerId", "found", addrPid, "expected", p)
 			continue
 		}
 

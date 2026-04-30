@@ -3,6 +3,7 @@ package eventbus
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
@@ -140,14 +141,11 @@ type mockLogger struct {
 	logs []string
 }
 
-func (m *mockLogger) Errorf(format string, args ...interface{}) {
+func (m *mockLogger) Write(p []byte) (n int, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.logs = append(m.logs, fmt.Sprintf(format, args...))
-}
-
-func (m *mockLogger) Warnf(format string, args ...interface{}) {
-	m.Errorf(format, args...)
+	m.logs = append(m.logs, string(p))
+	return len(p), nil
 }
 
 func (m *mockLogger) Logs() []string {
@@ -167,8 +165,8 @@ func TestEmitLogsErrorOnStall(t *testing.T) {
 	defer func() {
 		log = oldLogger
 	}()
-	ml := &mockLogger{}
-	log = ml
+	ml := mockLogger{}
+	log = slog.New(slog.NewTextHandler(&ml, nil))
 
 	bus1 := NewBus()
 	bus2 := NewBus()
@@ -247,7 +245,7 @@ func TestClosingRaces(t *testing.T) {
 
 	b := NewBus()
 
-	for i := 0; i < subs; i++ {
+	for range subs {
 		go func() {
 			lk.RLock()
 			defer lk.RUnlock()
@@ -259,7 +257,7 @@ func TestClosingRaces(t *testing.T) {
 			wg.Done()
 		}()
 	}
-	for i := 0; i < emits; i++ {
+	for range emits {
 		go func() {
 			lk.RLock()
 			defer lk.RUnlock()
@@ -293,7 +291,7 @@ func TestSubMany(t *testing.T) {
 	wait.Add(n)
 	ready.Add(n)
 
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			sub, err := bus.Subscribe(new(EventB))
 			if err != nil {
@@ -342,7 +340,7 @@ func TestWildcardSubscription(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	var evts []interface{}
+	var evts []any
 
 LOOP:
 	for {
@@ -368,8 +366,8 @@ LOOP:
 
 func TestManyWildcardSubscriptions(t *testing.T) {
 	bus := NewBus()
-	var subs []event.Subscription
-	for i := 0; i < 10; i++ {
+	subs := make([]event.Subscription, 0, 10)
+	for range 10 {
 		sub, err := bus.Subscribe(event.WildcardSubscription)
 		require.NoError(t, err)
 		subs = append(subs, sub)
@@ -425,7 +423,7 @@ func TestManyWildcardSubscriptions(t *testing.T) {
 func TestWildcardValidations(t *testing.T) {
 	bus := NewBus()
 
-	_, err := bus.Subscribe([]interface{}{event.WildcardSubscription, new(EventA), new(EventB)})
+	_, err := bus.Subscribe([]any{event.WildcardSubscription, new(EventA), new(EventB)})
 	require.Error(t, err)
 
 	_, err = bus.Emitter(event.WildcardSubscription)
@@ -434,7 +432,7 @@ func TestWildcardValidations(t *testing.T) {
 
 func TestSubType(t *testing.T) {
 	bus := NewBus()
-	sub, err := bus.Subscribe([]interface{}{new(EventA), new(EventB)})
+	sub, err := bus.Subscribe([]any{new(EventA), new(EventB)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +555,7 @@ func TestSubFailFully(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = bus.Subscribe([]interface{}{new(EventB), 5})
+	_, err = bus.Subscribe([]any{new(EventB), 5})
 	if err == nil || err.Error() != "subscribe called with non-pointer type" {
 		t.Fatal(err)
 	}
@@ -578,7 +576,7 @@ func TestSubFailFully(t *testing.T) {
 func TestSubCloseMultiple(t *testing.T) {
 	bus := NewBus()
 
-	sub, err := bus.Subscribe([]interface{}{new(EventB)})
+	sub, err := bus.Subscribe([]any{new(EventB)})
 	require.NoError(t, err)
 	err = sub.Close()
 	require.NoError(t, err)
@@ -600,7 +598,7 @@ func testMany(t testing.TB, subs, emits, msgs int, stateful bool) {
 	wait.Add(subs + emits)
 	ready.Add(subs)
 
-	for i := 0; i < subs; i++ {
+	for range subs {
 		go func() {
 			sub, err := bus.Subscribe(new(EventB))
 			if err != nil {
@@ -620,9 +618,9 @@ func testMany(t testing.TB, subs, emits, msgs int, stateful bool) {
 		}()
 	}
 
-	for i := 0; i < emits; i++ {
+	for range emits {
 		go func() {
-			em, err := bus.Emitter(new(EventB), func(settings interface{}) error {
+			em, err := bus.Emitter(new(EventB), func(settings any) error {
 				settings.(*emitterSettings).makeStateful = stateful
 				return nil
 			})
@@ -633,7 +631,7 @@ func testMany(t testing.TB, subs, emits, msgs int, stateful bool) {
 
 			ready.Wait()
 
-			for i := 0; i < msgs; i++ {
+			for range msgs {
 				em.Emit(EventB(97))
 			}
 
@@ -664,7 +662,7 @@ func (bc benchCase) name() string {
 
 func genTestCases() []benchCase {
 	ret := make([]benchCase, 0, 200)
-	for stateful := 0; stateful < 2; stateful++ {
+	for stateful := range 2 {
 		for subs := uint(0); subs <= 8; subs = subs + 4 {
 			for emits := uint(0); emits <= 8; emits = emits + 4 {
 				ret = append(ret, benchCase{1 << subs, 1 << emits, stateful == 1})
@@ -692,7 +690,7 @@ func benchMany(bc benchCase) func(*testing.B) {
 		wait.Add(subs + emits)
 		ready.Add(subs + emits)
 
-		for i := 0; i < subs; i++ {
+		for range subs {
 			go func() {
 				sub, err := bus.Subscribe(new(EventB))
 				if err != nil {
@@ -712,9 +710,9 @@ func benchMany(bc benchCase) func(*testing.B) {
 			}()
 		}
 
-		for i := 0; i < emits; i++ {
+		for range emits {
 			go func() {
-				em, err := bus.Emitter(new(EventB), func(settings interface{}) error {
+				em, err := bus.Emitter(new(EventB), func(settings any) error {
 					settings.(*emitterSettings).makeStateful = stateful
 					return nil
 				})
@@ -745,7 +743,7 @@ func BenchmarkSubscribe(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N/div; i++ {
 		bus := NewBus()
-		for j := 0; j < div; j++ {
+		for range div {
 			bus.Subscribe(new(EventA))
 		}
 	}
@@ -755,7 +753,7 @@ func BenchmarkEmitter(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N/div; i++ {
 		bus := NewBus()
-		for j := 0; j < div; j++ {
+		for range div {
 			bus.Emitter(new(EventA))
 		}
 	}
@@ -765,7 +763,7 @@ func BenchmarkSubscribeAndEmitter(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N/div; i++ {
 		bus := NewBus()
-		for j := 0; j < div; j++ {
+		for range div {
 			bus.Subscribe(new(EventA))
 			bus.Emitter(new(EventA))
 		}

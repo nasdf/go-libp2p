@@ -89,8 +89,7 @@ func withClock(c clock) BackoffDiscoveryOption {
 }
 
 func TestBackoffDiscoverySingleBackoff(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	clock := mockClock.NewMock()
 	discServer := mocks.NewDiscoveryServer(clock)
@@ -137,8 +136,7 @@ func TestBackoffDiscoverySingleBackoff(t *testing.T) {
 
 func TestBackoffDiscoveryMultipleBackoff(t *testing.T) {
 	clock := mockClock.NewMock()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	discServer := mocks.NewDiscoveryServer(clock)
 
@@ -195,8 +193,7 @@ func TestBackoffDiscoveryMultipleBackoff(t *testing.T) {
 }
 
 func TestBackoffDiscoverySimultaneousQuery(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	clock := mockClock.NewMock()
 	discServer := mocks.NewDiscoveryServer(clock)
@@ -205,7 +202,7 @@ func TestBackoffDiscoverySimultaneousQuery(t *testing.T) {
 	n := 40
 	advertisers := make([]discovery.Discovery, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		h := bhost.NewBlankHost(swarmt.GenSwarm(t))
 		defer h.Close()
 		advertisers[i] = mocks.NewDiscoveryClient(h, discServer)
@@ -257,8 +254,7 @@ func TestBackoffDiscoverySimultaneousQuery(t *testing.T) {
 }
 
 func TestBackoffDiscoveryCacheCapacity(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	clock := mockClock.NewMock()
 	discServer := mocks.NewDiscoveryServer(clock)
@@ -267,7 +263,7 @@ func TestBackoffDiscoveryCacheCapacity(t *testing.T) {
 	n := 40
 	advertisers := make([]discovery.Discovery, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		h := bhost.NewBlankHost(swarmt.GenSwarm(t))
 		defer h.Close()
 		advertisers[i] = mocks.NewDiscoveryClient(h, discServer)
@@ -287,7 +283,7 @@ func TestBackoffDiscoveryCacheCapacity(t *testing.T) {
 	const ns = "test"
 
 	// add speers
-	for i := 0; i < n; i++ {
+	for i := range n {
 		advertisers[i].Advertise(ctx, ns, discovery.TTL(time.Hour))
 	}
 	// Advance clock by one step

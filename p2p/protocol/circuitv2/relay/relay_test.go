@@ -31,7 +31,7 @@ import (
 )
 
 func getNetHosts(t *testing.T, _ context.Context, n int) (hosts []host.Host, upgraders []transport.Upgrader) {
-	for i := 0; i < n; i++ {
+	for range n {
 		privk, pubk, err := crypto.GenerateKeyPair(crypto.Ed25519, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -97,8 +97,7 @@ func addTransport(t *testing.T, h host.Host, upgrader transport.Upgrader) {
 }
 
 func TestBasicRelay(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	hosts, upgraders := getNetHosts(t, ctx, 3)
 	addTransport(t, hosts[0], upgraders[0])
@@ -157,7 +156,7 @@ func TestBasicRelay(t *testing.T) {
 		t.Fatal(err)
 	}
 	for {
-		var e interface{}
+		var e any
 		select {
 		case e = <-sub.Out():
 		case <-time.After(2 * time.Second):
@@ -205,8 +204,7 @@ func TestBasicRelay(t *testing.T) {
 }
 
 func TestRelayLimitTime(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	hosts, upgraders := getNetHosts(t, ctx, 3)
 	addTransport(t, hosts[0], upgraders[0])
@@ -279,8 +277,7 @@ func TestRelayLimitTime(t *testing.T) {
 }
 
 func TestRelayLimitData(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	hosts, upgraders := getNetHosts(t, ctx, 3)
 	addTransport(t, hosts[0], upgraders[0])
@@ -292,7 +289,7 @@ func TestRelayLimitData(t *testing.T) {
 		defer close(rch)
 
 		buf := make([]byte, 1024)
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			n, err := s.Read(buf)
 			if err != nil {
 				t.Fatal(err)
@@ -350,7 +347,7 @@ func TestRelayLimitData(t *testing.T) {
 	}
 
 	buf := make([]byte, 1024)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if _, err := rand.Read(buf); err != nil {
 			t.Fatal(err)
 		}

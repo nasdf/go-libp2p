@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -21,7 +22,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	. "github.com/libp2p/go-libp2p/p2p/net/swarm/testing"
 
-	logging "github.com/ipfs/go-log/v2"
+	logging "github.com/libp2p/go-libp2p/gologshim"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/stretchr/testify/require"
@@ -36,25 +37,25 @@ func EchoStreamHandler(stream network.Stream) {
 
 		// pull out the ipfs conn
 		c := stream.Conn()
-		log.Infof("%s ponging to %s", c.LocalPeer(), c.RemotePeer())
+		log.Info("ponging to peer", "local", c.LocalPeer(), "remote", c.RemotePeer())
 
 		buf := make([]byte, 4)
 
 		for {
 			if _, err := stream.Read(buf); err != nil {
 				if err != io.EOF {
-					log.Error("ping receive error:", err)
+					log.Error("ping receive error", "err", err)
 				}
 				return
 			}
 
 			if !bytes.Equal(buf, []byte("ping")) {
-				log.Errorf("ping receive error: ping != %s %v", buf, buf)
+				log.Error("ping receive error", "err", fmt.Errorf("ping mismatch: %s", string(buf)))
 				return
 			}
 
 			if _, err := stream.Write([]byte("pong")); err != nil {
-				log.Error("pond send error:", err)
+				log.Error("pong send error", "err", err)
 				return
 			}
 		}
@@ -69,7 +70,7 @@ func makeDialOnlySwarm(t *testing.T) *swarm.Swarm {
 
 func makeSwarms(t *testing.T, num int, opts ...Option) []*swarm.Swarm {
 	swarms := make([]*swarm.Swarm, 0, num)
-	for i := 0; i < num; i++ {
+	for range num {
 		swarm := GenSwarm(t, opts...)
 		swarm.SetStreamHandler(EchoStreamHandler)
 		swarms = append(swarms, swarm)
@@ -97,7 +98,7 @@ func connectSwarms(t *testing.T, ctx context.Context, swarms []*swarm.Swarm) {
 	wg.Wait()
 
 	for _, s := range swarms {
-		log.Infof("%s swarm routing table: %s", s.LocalPeer(), s.Peers())
+		log.Info("swarm routing table", "peer", s.LocalPeer(), "peers", s.Peers())
 	}
 }
 
@@ -109,9 +110,9 @@ func subtestSwarm(t *testing.T, SwarmNum int, MsgNum int) {
 
 	// ping/pong
 	for _, s1 := range swarms {
-		log.Debugf("-------------------------------------------------------")
-		log.Debugf("%s ping pong round", s1.LocalPeer())
-		log.Debugf("-------------------------------------------------------")
+		log.Debug("-------------------------------------------------------")
+		log.Debug("ping pong round", "peer", s1.LocalPeer())
+		log.Debug("-------------------------------------------------------")
 
 		_, cancel := context.WithCancel(context.Background())
 		got := map[peer.ID]int{}
@@ -134,9 +135,9 @@ func subtestSwarm(t *testing.T, SwarmNum int, MsgNum int) {
 				}
 
 				// send out ping!
-				for k := 0; k < MsgNum; k++ { // with k messages
+				for k := range MsgNum { // with k messages
 					msg := "ping"
-					log.Debugf("%s %s %s (%d)", s1.LocalPeer(), msg, p, k)
+					log.Debug("sending message", "local", s1.LocalPeer(), "msg", msg, "peer", p, "count", k)
 					if _, err := stream.Write([]byte(msg)); err != nil {
 						errChan <- err
 						continue
@@ -170,7 +171,7 @@ func subtestSwarm(t *testing.T, SwarmNum int, MsgNum int) {
 				// receive pings
 				msgCount := 0
 				msg := make([]byte, 4)
-				for k := 0; k < MsgNum; k++ { // with k messages
+				for k := range MsgNum { // with k messages
 
 					// read from the stream
 					if _, err := stream.Read(msg); err != nil {
@@ -183,7 +184,7 @@ func subtestSwarm(t *testing.T, SwarmNum int, MsgNum int) {
 						continue
 					}
 
-					log.Debugf("%s %s %s (%d)", s1.LocalPeer(), msg, p, k)
+					log.Debug("sending message", "local", s1.LocalPeer(), "msg", msg, "peer", p, "count", k)
 					msgCount++
 				}
 
@@ -204,7 +205,7 @@ func subtestSwarm(t *testing.T, SwarmNum int, MsgNum int) {
 			}
 		}
 
-		log.Debugf("%s got pongs", s1.LocalPeer())
+		log.Debug("got pongs", "peer", s1.LocalPeer())
 		if (len(swarms) - 1) != len(got) {
 			t.Errorf("got (%d) less messages than sent (%d).", len(got), len(swarms))
 		}
@@ -437,7 +438,7 @@ func TestStreamCount(t *testing.T) {
 		streamAccepted <- struct{}{}
 	})
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		str, err := s2.NewStream(context.Background(), s1.LocalPeer())
 		require.NoError(t, err)
 		str.Write([]byte("foobar"))
@@ -566,4 +567,62 @@ func TestListenCloseCount(t *testing.T) {
 	require.Len(t, remainingAddrs, 1)
 	_, err := remainingAddrs[0].ValueForProtocol(ma.P_TCP)
 	require.NoError(t, err, "expected the TCP address to still be present")
+}
+
+func TestAddCertHashes(t *testing.T) {
+	s := GenSwarm(t)
+
+	listenAddrs := s.ListenAddresses()
+	splitCertHashes := func(a ma.Multiaddr) (prefix, certhashes ma.Multiaddr, ok bool) {
+		for i, c := range a {
+			if c.Protocol().Code == ma.P_CERTHASH {
+				return prefix, a[i:], true
+			}
+			prefix = append(prefix, c)
+		}
+		return prefix, certhashes, false
+	}
+	addrWithNewIPPort := func(addr ma.Multiaddr, newIPPort ma.Multiaddr) ma.Multiaddr {
+		a := slices.Clone(addr)
+		a[0] = newIPPort[0]
+		a[1] = newIPPort[1]
+		return a
+	}
+	publicIPPort := []ma.Multiaddr{
+		ma.StringCast("/ip4/1.1.1.1/udp/1"),
+		ma.StringCast("/ip4/1.2.3.4/udp/1"),
+		ma.StringCast("/ip6/2005::/udp/1"),
+	}
+
+	certHashComponent := ma.StringCast("/certhash/uEgNmb28")
+	for _, a := range listenAddrs {
+		prefix, certhashes, ok := splitCertHashes(a)
+		if !ok {
+			continue
+		}
+		var publicAddrs []ma.Multiaddr
+		for _, tc := range publicIPPort {
+			publicAddrs = append(publicAddrs, addrWithNewIPPort(prefix, tc))
+		}
+		finalAddrs := s.AddCertHashes(publicAddrs)
+		for _, a := range finalAddrs {
+			_, certhash2, ok := splitCertHashes(a)
+			require.True(t, ok)
+			require.Equal(t, certhashes, certhash2)
+		}
+
+		// if the addr has a certhash already, check it isn't modified
+		publicAddrs = nil
+		for _, tc := range publicIPPort {
+			a := addrWithNewIPPort(prefix, tc)
+			a = append(a, certHashComponent...)
+			publicAddrs = append(publicAddrs, a)
+		}
+		finalAddrs = s.AddCertHashes(publicAddrs)
+		for _, a := range finalAddrs {
+			_, certhash2, ok := splitCertHashes(a)
+			require.True(t, ok)
+			require.Equal(t, certHashComponent, certhash2)
+		}
+	}
 }

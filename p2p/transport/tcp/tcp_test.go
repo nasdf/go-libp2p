@@ -11,10 +11,10 @@ import (
 	mocknetwork "github.com/libp2p/go-libp2p/core/network/mocks"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/sec"
-	"github.com/libp2p/go-libp2p/core/sec/insecure"
 	"github.com/libp2p/go-libp2p/core/transport"
 	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
 	tptu "github.com/libp2p/go-libp2p/p2p/net/upgrader"
+	"github.com/libp2p/go-libp2p/p2p/security/insecure"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcpreuse"
 	ttransport "github.com/libp2p/go-libp2p/p2p/transport/testsuite"
 
@@ -27,7 +27,7 @@ import (
 var muxers = []tptu.StreamMuxer{{ID: "/yamux", Muxer: yamux.DefaultTransport}}
 
 func TestTcpTransport(t *testing.T) {
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		peerA, ia := makeInsecureMuxer(t)
 		_, ib := makeInsecureMuxer(t)
 
@@ -116,7 +116,7 @@ func TestResourceManager(t *testing.T) {
 }
 
 func TestTcpTransportCantDialDNS(t *testing.T) {
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		dnsa, err := ma.NewMultiaddr("/dns4/example.com/tcp/1234")
 		require.NoError(t, err)
 
@@ -134,7 +134,7 @@ func TestTcpTransportCantDialDNS(t *testing.T) {
 }
 
 func TestTcpTransportCantListenUtp(t *testing.T) {
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		utpa, err := ma.NewMultiaddr("/ip4/127.0.0.1/udp/0/utp")
 		require.NoError(t, err)
 

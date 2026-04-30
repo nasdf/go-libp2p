@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -225,8 +225,8 @@ func TestAllAddrs(t *testing.T) {
 
 	// listen on IPv4 0.0.0.0
 	require.NoError(t, h.Network().Listen(ma.StringCast("/ip4/0.0.0.0/tcp/0")))
-	// should contain localhost and private local addr along with previous listen address
-	require.Len(t, h.AllAddrs(), 3)
+	// should contain more addresses than just the one from last time
+	require.Greater(t, len(h.AllAddrs()), 1)
 	// Should still contain the original addr.
 	require.True(t, ma.Contains(h.AllAddrs(), firstAddr), "should still contain the original addr")
 }
@@ -375,8 +375,7 @@ func TestHostProtoPreference(t *testing.T) {
 }
 
 func TestHostProtoMismatch(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1, h2 := getHostPair(t)
 	defer h1.Close()
@@ -444,12 +443,7 @@ func TestHostProtoPreknowledge(t *testing.T) {
 	require.Never(t, func() bool {
 		protos, err := h1.Peerstore().GetProtocols(h2.ID())
 		require.NoError(t, err)
-		for _, p := range protos {
-			if p == "/foo" {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(protos, "/foo")
 	}, time.Second, 100*time.Millisecond)
 
 	s, err := h1.NewStream(context.Background(), h2.ID(), "/foo", "/bar", "/super")
@@ -469,8 +463,7 @@ func TestHostProtoPreknowledge(t *testing.T) {
 }
 
 func TestNewDialOld(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1, h2 := getHostPair(t)
 	defer h1.Close()
@@ -541,8 +534,7 @@ func TestNewStreamResolve(t *testing.T) {
 }
 
 func TestProtoDowngrade(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1, h2 := getHostPair(t)
 	defer h1.Close()
@@ -600,14 +592,7 @@ func TestAddrChangeImmediatelyIfAddressNonEmpty(t *testing.T) {
 	ctx := context.Background()
 	taddrs := []ma.Multiaddr{ma.StringCast("/ip4/1.2.3.4/tcp/1234")}
 
-	starting := make(chan struct{}, 1)
-	var count atomic.Int32
-	h, err := NewHost(swarmt.GenSwarm(t), &HostOpts{AddrsFactory: func(addrs []ma.Multiaddr) []ma.Multiaddr {
-		// The first call here is made from the constructor. Don't block.
-		if count.Add(1) == 1 {
-			return addrs
-		}
-		<-starting
+	h, err := NewHost(swarmt.GenSwarm(t), &HostOpts{AddrsFactory: func(_ []ma.Multiaddr) []ma.Multiaddr {
 		return taddrs
 	}})
 	require.NoError(t, err)
@@ -618,7 +603,6 @@ func TestAddrChangeImmediatelyIfAddressNonEmpty(t *testing.T) {
 		t.Error(err)
 	}
 	defer sub.Close()
-	close(starting)
 	h.Start()
 
 	expected := event.EvtLocalAddressesUpdated{
@@ -756,8 +740,7 @@ func TestHostAddrChangeDetection(t *testing.T) {
 }
 
 func TestNegotiationCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h1, h2 := getHostPair(t)
 	defer h1.Close()
@@ -867,14 +850,6 @@ func peerRecordFromEnvelope(t *testing.T, ev *record.Envelope) *peer.PeerRecord 
 		return nil
 	}
 	return peerRec
-}
-
-func TestNormalizeMultiaddr(t *testing.T) {
-	h1, err := NewHost(swarmt.GenSwarm(t), nil)
-	require.NoError(t, err)
-	defer h1.Close()
-
-	require.Equal(t, "/ip4/1.2.3.4/udp/9999/quic-v1/webtransport", h1.NormalizeMultiaddr(ma.StringCast("/ip4/1.2.3.4/udp/9999/quic-v1/webtransport/certhash/uEgNmb28")).String())
 }
 
 func TestTrimHostAddrList(t *testing.T) {

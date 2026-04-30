@@ -40,6 +40,10 @@ import (
 	libp2pwebrtc "github.com/libp2p/go-libp2p/p2p/transport/webrtc"
 	"github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	webtransport "github.com/libp2p/go-libp2p/p2p/transport/webtransport"
+	"github.com/libp2p/go-yamux/v5"
+	"github.com/pion/webrtc/v4"
+	quicgo "github.com/quic-go/quic-go"
+	wtgo "github.com/quic-go/webtransport-go"
 	"go.uber.org/goleak"
 
 	ma "github.com/multiformats/go-multiaddr"
@@ -47,7 +51,7 @@ import (
 )
 
 func TestNewHost(t *testing.T) {
-	h, err := makeRandomHost(t, 9000)
+	h, err := makeRandomHost(t, 9191)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,9 +435,9 @@ func TestMain(m *testing.M) {
 		// This will return eventually (5s timeout) but doesn't take a context.
 		goleak.IgnoreAnyFunction("github.com/koron/go-ssdp.Search"),
 		goleak.IgnoreAnyFunction("github.com/pion/sctp.(*Stream).SetReadDeadline.func1"),
-		// Logging & Stats
-		goleak.IgnoreTopFunction("github.com/ipfs/go-log/v2/writer.(*MirrorWriter).logRoutine"),
+		// Stats
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+		// nat-pmp
 		goleak.IgnoreAnyFunction("github.com/jackpal/go-nat-pmp.(*Client).GetExternalAddress"),
 	)
 }
@@ -546,8 +550,7 @@ func TestWebRTCReuseAddrWithQUIC(t *testing.T) {
 			}
 
 			t.Run("quic client can connect", func(t *testing.T) {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+				ctx := t.Context()
 				p := ping.NewPingService(quicClient)
 				resCh := p.Ping(ctx, h1.ID())
 				res := <-resCh
@@ -555,8 +558,7 @@ func TestWebRTCReuseAddrWithQUIC(t *testing.T) {
 			})
 
 			t.Run("webrtc client can connect", func(t *testing.T) {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+				ctx := t.Context()
 				p := ping.NewPingService(webrtcClient)
 				resCh := p.Ping(ctx, h1.ID())
 				res := <-resCh
@@ -757,18 +759,18 @@ func TestSharedTCPAddr(t *testing.T) {
 		ShareTCPListener(),
 		Transport(tcp.NewTCPTransport),
 		Transport(websocket.New),
-		ListenAddrStrings("/ip4/0.0.0.0/tcp/8888"),
-		ListenAddrStrings("/ip4/0.0.0.0/tcp/8888/ws"),
+		ListenAddrStrings("/ip4/0.0.0.0/tcp/8188"),
+		ListenAddrStrings("/ip4/0.0.0.0/tcp/8188/ws"),
 	)
 	require.NoError(t, err)
 	defer h.Close()
 	sawTCP := false
 	sawWS := false
 	for _, addr := range h.Addrs() {
-		if strings.HasSuffix(addr.String(), "/tcp/8888") {
+		if strings.HasSuffix(addr.String(), "/tcp/8188") {
 			sawTCP = true
 		}
-		if strings.HasSuffix(addr.String(), "/tcp/8888/ws") {
+		if strings.HasSuffix(addr.String(), "/tcp/8188/ws") {
 			sawWS = true
 		}
 	}
@@ -840,5 +842,78 @@ func BenchmarkAllAddrs(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		addrsHost.AllAddrs()
+	}
+}
+
+func TestConnAs(t *testing.T) {
+	type testCase struct {
+		name       string
+		listenAddr string
+		testAs     func(t *testing.T, c network.Conn)
+	}
+
+	testCases := []testCase{
+		{
+			"QUIC",
+			"/ip4/0.0.0.0/udp/0/quic-v1",
+			func(t *testing.T, c network.Conn) {
+				var quicConn *quicgo.Conn
+				require.True(t, c.As(&quicConn))
+			},
+		},
+		{
+			"TCP+Yamux",
+			"/ip4/0.0.0.0/tcp/0",
+			func(t *testing.T, c network.Conn) {
+				var yamuxSession *yamux.Session
+				require.True(t, c.As(&yamuxSession))
+			},
+		},
+		{
+			"WebRTC",
+			"/ip4/0.0.0.0/udp/0/webrtc-direct",
+			func(t *testing.T, c network.Conn) {
+				var webrtcPC *webrtc.PeerConnection
+				require.True(t, c.As(&webrtcPC))
+			},
+		},
+		{
+			"WebTransport Session",
+			"/ip4/0.0.0.0/udp/0/quic-v1/webtransport",
+			func(t *testing.T, c network.Conn) {
+				var s *wtgo.Session
+				require.True(t, c.As(&s))
+			},
+		},
+		{
+			"WebTransport QUIC Conn",
+			"/ip4/0.0.0.0/udp/0/quic-v1/webtransport",
+			func(t *testing.T, c network.Conn) {
+				var quicConn *quicgo.Conn
+				require.True(t, c.As(&quicConn))
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			h1, err := New(ListenAddrStrings(
+				tc.listenAddr,
+			))
+			require.NoError(t, err)
+			defer h1.Close()
+			h2, err := New(ListenAddrStrings(
+				tc.listenAddr,
+			))
+			require.NoError(t, err)
+			defer h2.Close()
+			err = h1.Connect(context.Background(), peer.AddrInfo{
+				ID:    h2.ID(),
+				Addrs: h2.Addrs(),
+			})
+			require.NoError(t, err)
+			c := h1.Network().ConnsToPeer(h2.ID())[0]
+			tc.testAs(t, c)
+		})
 	}
 }
