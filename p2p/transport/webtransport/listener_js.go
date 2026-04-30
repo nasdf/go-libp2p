@@ -3,7 +3,6 @@
 package libp2pwebtransport
 
 import (
-	"errors"
 	"net"
 	"sync"
 
@@ -11,8 +10,6 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 )
-
-var errListenerClosed = errors.New("webtransport listener closed")
 
 // noopListener is a placeholder listener for js/wasm. The browser cannot accept
 // inbound WebTransport sessions, so listing this transport in the host's listen
@@ -69,7 +66,7 @@ func appendComponent(m ma.Multiaddr, c *ma.Component) ma.Multiaddr {
 
 func (l *noopListener) Accept() (tpt.CapableConn, error) {
 	<-l.closed
-	return nil, errListenerClosed
+	return nil, tpt.ErrListenerClosed
 }
 
 func (l *noopListener) Close() error {

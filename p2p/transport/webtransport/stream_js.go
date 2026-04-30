@@ -49,15 +49,18 @@ func (s *stream) Read(b []byte) (int, error) {
 		return 0, io.EOF
 	}
 	n, err := s.read(b)
+	if n > 0 {
+		s.readAny = true
+	}
 	if err != nil {
 		if s.readAny && err.Error() == errInputStream {
 			s.done = true
+			if n > 0 {
+				return n, nil
+			}
 			return 0, io.EOF
 		}
 		return n, err
-	}
-	if n > 0 {
-		s.readAny = true
 	}
 	return n, nil
 }

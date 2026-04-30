@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 
 	"github.com/libp2p/go-libp2p/core/connmgr"
 	ic "github.com/libp2p/go-libp2p/core/crypto"
@@ -135,12 +136,15 @@ func (t *transport) dialWithScope(ctx context.Context, raddr ma.Multiaddr, p pee
 }
 
 func (t *transport) dial(ctx context.Context, maddr ma.Multiaddr, host, sni string, certHashes []multihash.DecodedMultihash) (*session, error) {
-	var url string
+	dialHost := host
 	if sni != "" {
-		url = fmt.Sprintf("https://%s%s?type=noise", sni, webtransportHTTPEndpoint)
-	} else {
-		url = fmt.Sprintf("https://%s%s?type=noise", host, webtransportHTTPEndpoint)
+		_, port, err := net.SplitHostPort(host)
+		if err != nil {
+			return nil, err
+		}
+		dialHost = net.JoinHostPort(sni, port)
 	}
+	url := fmt.Sprintf("https://%s%s?type=noise", dialHost, webtransportHTTPEndpoint)
 	certHashValues := make([]web_transport.CertificateHashValue, 0)
 	for _, hash := range certHashes {
 		certHashValues = append(certHashValues, web_transport.CertificateHash("sha-256", hash.Digest))
@@ -155,10 +159,12 @@ func (t *transport) upgrade(ctx context.Context, sess *session, p peer.ID, certH
 	if err != nil {
 		return nil, err
 	}
-	defer s.Close()
 
 	var verified bool
 	n, err := t.noise.WithSessionOptions(noise.EarlyData(newEarlyDataReceiver(func(b *pb.NoiseExtensions) error {
+		if b == nil {
+			return errors.New("missing webtransport certificate hashes")
+		}
 		decodedCertHashes, err := decodeCertHashesFromProtobuf(b.WebtransportCerthashes)
 		if err != nil {
 			return err
@@ -179,15 +185,14 @@ func (t *transport) upgrade(ctx context.Context, sess *session, p peer.ID, certH
 		return nil
 	}), nil))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Noise transport: %w", err)
+		return nil, errors.Join(s.Close(), fmt.Errorf("failed to create Noise transport: %w", err))
 	}
 	c, err := n.SecureOutbound(ctx, s, p)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(s.Close(), err)
 	}
-	defer c.Close()
 	if !verified {
-		return nil, errors.New("didn't verify")
+		return nil, errors.Join(s.Close(), errors.New("didn't verify"))
 	}
 	return &connSecurityMultiaddrs{
 		ConnSecurity:   c,
