@@ -54,7 +54,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/quic-go/quic-go v0.59.0
 	github.com/quic-go/webtransport-go v0.10.0
-	github.com/sourcenetwork/goji v0.0.9
+	github.com/sourcenetwork/goji v0.0.10
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/fx v1.24.0
 	go.uber.org/goleak v1.3.0
